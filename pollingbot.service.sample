@@ -1,0 +1,14 @@
+[Unit]
+Description=PollingBot
+After=network.target
+
+[Service]
+WorkingDirectory=/home/<username>/pollbot/
+Type=simple
+ExecStart=/home/kirill/pollbot/venv/bin/python main.py
+Restart=always
+User=<username>
+Group=<username>
+
+[Install]
+WantedBy=multi-user.target
