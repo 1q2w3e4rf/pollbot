@@ -5,7 +5,7 @@ After=network.target
 [Service]
 WorkingDirectory=/home/<username>/pollbot/
 Type=simple
-ExecStart=/home/kirill/pollbot/venv/bin/python main.py
+ExecStart=/home/<username>/pollbot/venv/bin/python main.py
 Restart=always
 User=<username>
 Group=<username>
