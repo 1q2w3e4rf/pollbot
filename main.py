@@ -4,13 +4,40 @@ import datetime
 import json
 import os
 
+
 bot = telebot.TeleBot(TOKEN)
 last_poll_time = bot.last_poll_time = None
 chat_history = {}
 words = ["ptkegpijojrgt"]
 
+
 if not os.path.exists('messages.json'):
     open('messages.json', 'w').close()
+
+
+def load_stats(chat_id, user_id):
+    try:
+        with open('stats.json', 'r') as f:
+            data = json.load(f)
+            if str(chat_id) in data and str(user_id) in data[str(chat_id)]:
+                return data[str(chat_id)][str(user_id)]
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return {'messages': 0}
+
+
+def save_stats(chat_id, user_id, stats):
+    try:
+        with open('stats.json', 'r') as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {}
+    if str(chat_id) not in data:
+        data[str(chat_id)] = {}
+    data[str(chat_id)][str(user_id)] = stats
+    with open('stats.json', 'w') as f:
+        json.dump(data, f, indent=4)
+
 
 @bot.message_handler(commands=['poll'])
 def send_poll(message: telebot.types.Message):
@@ -19,6 +46,7 @@ def send_poll(message: telebot.types.Message):
     options = ['Я', 'Не я']
     poll_message = bot.send_poll(chat_id, question, options, is_anonymous=False)
     bot.pin_chat_message(chat_id, poll_message.message_id)
+
 
 @bot.message_handler(commands=['kick'])
 def kick_user(message):
@@ -34,27 +62,7 @@ def kick_user(message):
     else:
         bot.reply_to(message, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите кикнуть.")
 
-@bot.message_handler(commands=['rank'])
-def set_rank(message):
-    if message.reply_to_message:
-        chat_id = message.chat.id
-        user_id = message.reply_to_message.from_user.id
-        rank = message.text.split()[1:]
-        if bot.get_chat_member(chat_id, message.from_user.id).status in ['administrator', 'creator']:
-            if rank:
-                rank = ' '.join(rank)
-                if chat_id not in chat_history:
-                    chat_history[chat_id] = {}
-                if user_id not in chat_history[chat_id]:
-                    chat_history[chat_id][user_id] = {}
-                chat_history[chat_id][user_id]['rank'] = rank
-                bot.reply_to(message, f"Ранг пользователя {message.reply_to_message.from_user.username} установлен как {rank}")
-            else:
-                bot.reply_to(message, "Укажите ранг")
-        else:
-            bot.reply_to(message, "Только администраторы могут присваивать ранги")
-    else:
-        bot.reply_to(message, "Эта команда должна быть использована в ответ на сообщение пользователя, которому вы хотите присвоить ранг")
+
 @bot.message_handler(commands=['mute'])
 def mute_user(message):
     if message.reply_to_message:
@@ -83,6 +91,7 @@ def mute_user(message):
     else:
         bot.reply_to(message, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите замутить.")
 
+
 @bot.message_handler(commands=['unmute'])
 def unmute_user(message):
     if message.reply_to_message:
@@ -93,32 +102,41 @@ def unmute_user(message):
     else:
         bot.reply_to(message, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите размутить.")
 
+
 @bot.message_handler(commands=['stats'])
 def stats(message):
     chat_id = message.chat.id
     user_id = message.from_user.id
-    if chat_id not in chat_history:
-        chat_history[chat_id] = {}
-    if user_id not in chat_history[chat_id]:
-        chat_history[chat_id][user_id] = {'messages': 0, 'rank': 'Не установлен'}
-    user_messages = chat_history[chat_id][user_id]['messages']
-    rank = chat_history[chat_id][user_id]['rank']
+    user_stats = load_stats(chat_id, user_id)
     total_messages = 0
-    bot.reply_to(message, f"Всего сообщений в группе: {sum(user.get('messages', 0) for user in chat_history[chat_id].values())}\nСообщений от @{message.from_user.username}: {user_messages}\nРанг: {rank}")
+    try:
+        with open('stats.json', 'r') as f:
+            data = json.load(f)
+            if str(chat_id) in data:
+                total_messages = sum(user.get('messages', 0) for user in data[str(chat_id)].values())
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    bot.reply_to(message, f"Всего сообщений в группе: {total_messages}\nСообщений от @{message.from_user.username}: {user_stats['messages']}")
+
+
 def check_message(message):
     for word in words:
         if word in message.text.lower():
             return True
     return False
 
+
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     chat_id = message.chat.id
     user_id = message.from_user.id
+    user_stats = load_stats(chat_id, user_id)
+    user_stats['messages'] += 1
+    save_stats(chat_id, user_id, user_stats)
     if chat_id not in chat_history:
         chat_history[chat_id] = {}
     if user_id not in chat_history[chat_id]:
-        chat_history[chat_id][user_id] = {'messages': 0, 'rank': 'Не установлен'}
+        chat_history[chat_id][user_id] = {'messages': 0}
     chat_history[chat_id][user_id]['messages'] += 1
     
     user_name = message.from_user.username
@@ -149,5 +167,6 @@ def handle_message(message):
     if check_message(message):
         bot.kick_chat_member(message.chat.id, message.from_user.id)
         bot.send_message(message.chat.id, f"Пользователь {message.from_user.username} был удален из чата за использование запрещенных слов")
+
 
 bot.infinity_polling()
