@@ -1,6 +1,7 @@
 import telebot
 from config import TOKEN
 import datetime
+import time
 import json
 import os
 
@@ -8,8 +9,10 @@ import os
 bot = telebot.TeleBot(TOKEN)
 last_poll_time = bot.last_poll_time = None
 chat_history = {}
-words = ["ptkegpijojrgt"]
+words = []
 
+with open('mat.txt', 'r') as f:
+    words = f.read().splitlines()
 
 if not os.path.exists('messages.json'):
     open('messages.json', 'w').close()
@@ -42,10 +45,16 @@ def save_stats(chat_id, user_id, stats):
 @bot.message_handler(commands=['poll'])
 def send_poll(message: telebot.types.Message):
     chat_id = message.chat.id
+    sender_status = bot.get_chat_member(chat_id, message.from_user.id).status
+    if sender_status not in ['administrator', 'creator']:
+        bot.reply_to(message, "Только администраторы и владельцы чата могут использовать эту команду.")
+        bot.delete_message(chat_id, message.message_id)
+        return
     question = 'Кто придет?'
     options = ['Я', 'Не я']
     poll_message = bot.send_poll(chat_id, question, options, is_anonymous=False)
     bot.pin_chat_message(chat_id, poll_message.message_id)
+    bot.delete_message(chat_id, message.message_id)
 
 
 @bot.message_handler(commands=['kick'])
@@ -53,14 +62,22 @@ def kick_user(message):
     if message.reply_to_message:
         chat_id = message.chat.id
         user_id = message.reply_to_message.from_user.id
+        sender_status = bot.get_chat_member(chat_id, message.from_user.id).status
+        if sender_status not in ['administrator', 'creator']:
+            bot.reply_to(message, "Только администраторы и владельцы чата могут использовать эту команду.")
+            bot.delete_message(chat_id, message.id)
+            return
         user_status = bot.get_chat_member(chat_id, user_id).status
         if user_status == 'administrator' or user_status == 'creator':
             bot.reply_to(message, "Нельзя кикнуть администратора.")
+            bot.delete_message(chat_id, message.id)
         else:
             bot.kick_chat_member(chat_id, user_id)
             bot.reply_to(message, f"Пользователь {message.reply_to_message.from_user.username} был кикнут.")
+            bot.delete_message(chat_id, message.id)
     else:
         bot.reply_to(message, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите кикнуть.")
+        bot.delete_message(message.chat.id, message.id)
 
 
 @bot.message_handler(commands=['mute'])
@@ -68,9 +85,11 @@ def mute_user(message):
     if message.reply_to_message:
         chat_id = message.chat.id
         user_id = message.reply_to_message.from_user.id
-        user_status = bot.get_chat_member(chat_id, user_id).status
-        if user_status == 'administrator' or user_status == 'creator':
-            bot.reply_to(message, "Невозможно замутить администратора.")
+        sender_status = bot.get_chat_member(chat_id, message.from_user.id).status
+        if sender_status not in ['administrator', 'creator']:
+            bot.reply_to(message, "Только администраторы и владельцы чата могут использовать эту команду.")
+            bot.delete_message(chat_id, message.id)
+            return
         else:
             muttime = 60
             args = message.text.split()[1:]
@@ -79,29 +98,39 @@ def mute_user(message):
                     muttime = int(args[0])
                 except ValueError:
                     bot.reply_to(message, "Неправильный формат времени.")
+                    bot.delete_message(chat_id, message.id)
                     return
                 if muttime < 1:
                     bot.reply_to(message, "Время должно быть положительным числом.")
+                    bot.delete_message(chat_id, message.id) 
                     return
                 if muttime > 1440:
                     bot.reply_to(message, "Максимальное время - 1 день.")
+                    bot.delete_message(chat_id, message.id) 
                     return
             bot.restrict_chat_member(chat_id, user_id, until_date=time.time()+muttime*60)
             bot.reply_to(message, f"Пользователь {message.reply_to_message.from_user.username} замучен на {muttime} минут.")
+            bot.delete_message(chat_id, message.id)
     else:
         bot.reply_to(message, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите замутить.")
-
+        bot.delete_message(message.chat.id, message.id) 
 
 @bot.message_handler(commands=['unmute'])
 def unmute_user(message):
     if message.reply_to_message:
         chat_id = message.chat.id
         user_id = message.reply_to_message.from_user.id
+        sender_status = bot.get_chat_member(chat_id, message.from_user.id).status
+        if sender_status not in ['administrator', 'creator']:
+            bot.reply_to(message, "Только администраторы и владельцы чата могут использовать эту команду.")
+            bot.delete_message(chat_id, message.id)
+            return
         bot.restrict_chat_member(chat_id, user_id, can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True, can_add_web_page_previews=True)
         bot.reply_to(message, f"Пользователь {message.reply_to_message.from_user.username} размучен.")
+        bot.delete_message(chat_id, message.id)
     else:
         bot.reply_to(message, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите размутить.")
-
+        bot.delete_message(message.chat.id, message.id)
 
 @bot.message_handler(commands=['stats'])
 def stats(message):
@@ -117,7 +146,7 @@ def stats(message):
     except (FileNotFoundError, json.JSONDecodeError):
         pass
     bot.reply_to(message, f"Всего сообщений в группе: {total_messages}\nСообщений от @{message.from_user.username}: {user_stats['messages']}")
-
+    bot.delete_message(chat_id, message.message_id) 
 
 def check_message(message):
     for word in words:
@@ -165,8 +194,8 @@ def handle_message(message):
             bot.last_poll_time = current_time
     
     if check_message(message):
-        bot.kick_chat_member(message.chat.id, message.from_user.id)
-        bot.send_message(message.chat.id, f"Пользователь {message.from_user.username} был удален из чата за использование запрещенных слов")
-
+        bot.restrict_chat_member(chat_id, user_id, until_date=time.time()+15*60)
+        bot.delete_message(chat_id, message.message_id)
+        bot.send_message(chat_id, f"Пользователь {message.from_user.username} был замучен на 15 минут за использование запрещенных слов")
 
 bot.infinity_polling()
