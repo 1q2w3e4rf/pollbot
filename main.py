@@ -173,9 +173,20 @@ def stats(message):
         bot.send_message(chat_id, "Эту команду можно использовать только в группах.")
         bot.delete_message(message.chat.id, message.id)
 
+translit_dict = {
+    'a': 'а', 'b': 'б', 'e': 'е',
+    'k': 'к', 'm': 'м',
+    'o': 'о', 'p': 'р', 'q': 'к', 'r': 'р', 'c': 'с', 't': 'т',
+    'x': 'х', 'y': 'у', 'z': 'з'
+}
+
 def check_message(message):
+    message_text = message.text.lower()
+    for char in message_text:
+        if char.isalpha():
+            message_text = message_text.replace(char, translit_dict.get(char, char))
     for word in words:
-        if word in message.text.lower():
+        if word in message_text:
             return True
     return False
 
@@ -223,8 +234,16 @@ def handle_message(message):
 
     
     if check_message(message):
-        bot.restrict_chat_member(chat_id, user_id, until_date=time.time()+15*60)
-        bot.delete_message(chat_id, message.message_id)
-        bot.send_message(chat_id, f"Пользователь {message.from_user.username} был замучен на 15 минут за использование запрещенных слов")
+        if message.chat.type == 'supergroup':
+            chat_id = message.chat.id
+            user_id = message.from_user.id
+            sender_status = bot.get_chat_member(chat_id, message.from_user.id).status
+            if sender_status not in ['administrator', 'creator']:
+                bot.restrict_chat_member(chat_id, user_id, until_date=time.time()+15*60)
+                bot.delete_message(chat_id, message.message_id)
+                bot.send_message(chat_id, f"Пользователь {message.from_user.username} был замучен на 15 минут за использование запрещенных слов")
+            else:
+                bot.send_message(chat_id, f"Так нельзя {message.from_user.username}.")
+                bot.delete_message(chat_id, message.message_id)
 
 bot.infinity_polling()
