@@ -69,7 +69,8 @@ def kick_user(message):
             user_id = message.reply_to_message.from_user.id
             sender_status = bot.get_chat_member(chat_id, message.from_user.id).status
             if sender_status not in ['administrator', 'creator']:
-                bot.send_message(chat_id, "Только администраторы и владельцы чата могут использовать эту команду.")
+                bot.send_message(chat_id, "Только администраторы и владельцы чата могут использовать эту команду за это вы получите мут в течение 20 минут.")
+                bot.restrict_chat_member(chat_id, message.from_user.id, until_date=time.time()+20*60)
                 bot.delete_message(chat_id, message.id)
                 return
             user_status = bot.get_chat_member(chat_id, user_id).status
@@ -96,7 +97,8 @@ def mute_user(message):
             user_id = message.reply_to_message.from_user.id
             sender_status = bot.get_chat_member(chat_id, message.from_user.id).status
             if sender_status not in ['administrator', 'creator']:
-                bot.send_message(chat_id, "Только администраторы и владельцы чата могут использовать эту команду.")
+                bot.send_message(chat_id, "Только администраторы и владельцы чата могут использовать эту команду за это вы получите мут в течение 20 минут.")
+                bot.restrict_chat_member(chat_id, message.from_user.id, until_date=time.time()+20*60)
                 bot.delete_message(chat_id, message.id)
                 return
             else:
@@ -121,7 +123,7 @@ def mute_user(message):
                 bot.send_message(chat_id, f"Пользователь {message.reply_to_message.from_user.username} замучен на {muttime} минут.")
                 bot.delete_message(chat_id, message.id)
         else:
-            bot.send_message(chat_id, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите замутить.")
+            bot.send_message(message.chat.id, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите замутить.")
             bot.delete_message(message.chat.id, message.id) 
     else:
         bot.send_message(chat_id, "Эту команду можно использовать только в группах.")
@@ -136,7 +138,8 @@ def unmute_user(message):
             user_id = message.reply_to_message.from_user.id
             sender_status = bot.get_chat_member(chat_id, message.from_user.id).status
             if sender_status not in ['administrator', 'creator']:
-                bot.send_message(chat_id, "Только администраторы и владельцы чата могут использовать эту команду.")
+                bot.send_message(chat_id, "Только администраторы и владельцы чата могут использовать эту команду за это вы получите мут в течение 20 минут.")
+                bot.restrict_chat_member(chat_id, message.from_user.id, until_date=time.time()+20*60)
                 bot.delete_message(chat_id, message.id)
                 return
             bot.restrict_chat_member(chat_id, user_id, can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True, can_add_web_page_previews=True)
