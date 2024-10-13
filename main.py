@@ -4,7 +4,7 @@ import datetime
 import time
 import json
 import os
-
+import re
 
 bot = telebot.TeleBot(TOKEN)
 last_poll_time = bot.last_poll_time = None
@@ -183,14 +183,26 @@ translit_dict = {
     'x': 'х', 'y': 'у', 'z': 'з'
 }
 
+def replace_letters(match):
+    letter = match.group(0)
+    return translit_dict.get(letter, letter)
+
 def check_message(message):
-    message_text = message.text.lower()
-    for char in message_text:
-        if char.isalpha():
-            message_text = message_text.replace(char, translit_dict.get(char, char))
-    for word in words:
-        if word in message_text:
+    message_text = re.sub(r'([a-z])', replace_letters, message.text.lower())
+    with open('mat.txt', 'r') as f:
+        bad_words = [line.strip() for line in f.readlines()]
+    
+    for word in bad_words:
+        pattern = re.compile(r'\b' + re.escape(word) + r'\b')
+        if pattern.search(message_text):
             return True
+        
+        variations = [word + suffix for suffix in ['', 's', 'ing', 'ed', 'ly']]
+        for variation in variations:
+            pattern = re.compile(r'\b' + re.escape(variation) + r'\b')
+            if pattern.search(message_text):
+                return True
+    
     return False
 
 
@@ -230,8 +242,8 @@ def handle_message(message):
                 bot.unpin_chat_message(chat_id)
             question = 'Кто придет?'
             options = ['Я', 'Не я']
-            poll_message = bot.send_poll(chat_id, question, options, is_anonymous=False)
-            bot.pin_chat_message(chat_id, poll_message.message_id)
+            poll_message = bot.send_poll(message.chat.id, question, options, is_anonymous=False)
+            bot.pin_chat_message(message.chat.id, poll_message.message_id)
             bot.last_poll_time = current_time
             
 
@@ -244,9 +256,9 @@ def handle_message(message):
             if sender_status not in ['administrator', 'creator']:
                 bot.restrict_chat_member(chat_id, user_id, until_date=time.time()+15*60)
                 bot.delete_message(chat_id, message.message_id)
-                bot.send_message(chat_id, f"Пользователь {message.from_user.username} был замучен на 15 минут за использование запрещенных слов")
+                bot.send_message(message.chat.id, f"Пользователь {message.from_user.username} был замучен на 15 минут за использование запрещенных слов")
             else:
-                bot.send_message(chat_id, f"Так нельзя {message.from_user.username}.")
-                bot.delete_message(chat_id, message.message_id)
+                bot.send_message(message.chat.id, f"Так нельзя {message.from_user.username}.")
+                bot.delete_message(message.chat.id, message.message_id)
 
 bot.infinity_polling()
