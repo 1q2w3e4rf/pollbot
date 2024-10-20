@@ -3,48 +3,52 @@ from config import TOKEN
 import datetime
 import time
 import json
+import sqlite3
 import os
-import re
-from YaGPT import YaGPT, YaGPTException
 
-folder_id = "your_folder_id"
-iam_token = "your_iam_token"
 
-lm = YaGPT(folder_id, iam_token)
 bot = telebot.TeleBot(TOKEN)
 last_poll_time = bot.last_poll_time = None
 chat_history = {}
 words = []
-lm = YaGPT(folder_id, iam_token)
+
+
+
 with open('mat.txt', 'r') as f:
     words = f.read().splitlines()
 
 if not os.path.exists('messages.json'):
     open('messages.json', 'w').close()
 
+def create_tables():
+    conn = sqlite3.connect('stats.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS stats
+        (chat_id TEXT, user_id TEXT, messages INTEGER, PRIMARY KEY (chat_id, user_id))
+    ''')
+    conn.commit()
+    conn.close()
+
+create_tables()
 
 def load_stats(chat_id, user_id):
-    try:
-        with open('stats.json', 'r') as f:
-            data = json.load(f)
-            if str(chat_id) in data and str(user_id) in data[str(chat_id)]:
-                return data[str(chat_id)][str(user_id)]
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    return {'messages': 0}
-
+    conn = sqlite3.connect('stats.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT messages FROM stats WHERE chat_id=? AND user_id=?', (str(chat_id), str(user_id)))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        return {'messages': result[0]}
+    else:
+        return {'messages': 0}
 
 def save_stats(chat_id, user_id, stats):
-    try:
-        with open('stats.json', 'r') as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = {}
-    if str(chat_id) not in data:
-        data[str(chat_id)] = {}
-    data[str(chat_id)][str(user_id)] = stats
-    with open('stats.json', 'w') as f:
-        json.dump(data, f, indent=4)
+    conn = sqlite3.connect('stats.db')
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO stats VALUES (?, ?, ?)', (str(chat_id), str(user_id), stats['messages']))
+    conn.commit()
+    conn.close()
 
 
 @bot.message_handler(commands=['poll'])
@@ -164,13 +168,12 @@ def stats(message):
         user_id = message.from_user.id
         user_stats = load_stats(chat_id, user_id)
         total_messages = 0
-        try:
-            with open('stats.json', 'r') as f:
-                data = json.load(f)
-                if str(chat_id) in data:
-                    total_messages = sum(user.get('messages', 0) for user in data[str(chat_id)].values())
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        with sqlite3.connect('stats.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT SUM(messages) FROM stats WHERE chat_id=?', (str(chat_id),))
+            result = cursor.fetchone()
+            if result:
+                total_messages = result[0]
         try:
             bot.send_message(user_id, f"Всего сообщений в группе: {total_messages}\nСообщений от @{message.from_user.username}: {user_stats['messages']}")
         except telebot.apihelper.ApiTelegramException as e:
@@ -188,27 +191,14 @@ translit_dict = {
     'x': 'х', 'y': 'у', 'z': 'з'
 }
 
-def replace_letters(match):
-    letter = match.group(0)
-    return translit_dict.get(letter, letter)
-
-
 def check_message(message):
-    try:
-        result = lm.instruct(
-            model="general",
-            instruction_text="Определить, содержит ли текст мат",
-            request_text=message.text.lower(),
-            max_tokens=1500,
-            temperature=0.6)
-
-        if result:
-            for alternative in result:
-                if alternative['score'] > 0.5:  
-                    return True
-    except YaGPTException as e:
-        print(f"Language Model Error: {e}")
-
+    message_text = message.text.lower()
+    for char in message_text:
+        if char.isalpha():
+            message_text = message_text.replace(char, translit_dict.get(char, char))
+    for word in words:
+        if message_text.startswith(word) or ' ' + word in message_text:
+            return True
     return False
 
 
@@ -245,13 +235,13 @@ def handle_message(message):
             chat_id = message.chat.id
             chat = bot.get_chat(chat_id)
             if chat.pinned_message:
-                bot.unpin_chat_message(chat_id)
+                bot.unpin_chat_message(chat_id) 
             question = 'Кто придет?'
             options = ['Я', 'Не я']
-            poll_message = bot.send_poll(message.chat.id, question, options, is_anonymous=False)
-            bot.pin_chat_message(message.chat.id, poll_message.message_id)
+            poll_message = bot.send_poll(chat_id, question, options, is_anonymous=False)
+            bot.pin_chat_message(chat_id, poll_message.message_id)
             bot.last_poll_time = current_time
-            
+    
 
     
     if check_message(message):
@@ -262,9 +252,9 @@ def handle_message(message):
             if sender_status not in ['administrator', 'creator']:
                 bot.restrict_chat_member(chat_id, user_id, until_date=time.time()+15*60)
                 bot.delete_message(chat_id, message.message_id)
-                bot.send_message(message.chat.id, f"Пользователь {message.from_user.username} был замучен на 15 минут за использование запрещенных слов")
+                bot.send_message(chat_id, f"Пользователь {message.from_user.username} был замучен на 15 минут за использование запрещенных слов")
             else:
-                bot.send_message(message.chat.id, f"Так нельзя {message.from_user.username}.")
-                bot.delete_message(message.chat.id, message.message_id)
+                bot.send_message(chat_id, f"Так нельзя {message.from_user.username}.")
+                bot.delete_message(chat_id, message.message_id)
 
 bot.infinity_polling()
