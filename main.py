@@ -5,12 +5,17 @@ import time
 import json
 import os
 import re
+from YaGPT import YaGPT, YaGPTException
 
+folder_id = "your_folder_id"
+iam_token = "your_iam_token"
+
+lm = YaGPT(folder_id, iam_token)
 bot = telebot.TeleBot(TOKEN)
 last_poll_time = bot.last_poll_time = None
 chat_history = {}
 words = []
-
+lm = YaGPT(folder_id, iam_token)
 with open('mat.txt', 'r') as f:
     words = f.read().splitlines()
 
@@ -187,22 +192,23 @@ def replace_letters(match):
     letter = match.group(0)
     return translit_dict.get(letter, letter)
 
+
 def check_message(message):
-    message_text = re.sub(r'([a-z])', replace_letters, message.text.lower())
-    with open('mat.txt', 'r') as f:
-        bad_words = [line.strip() for line in f.readlines()]
-    
-    for word in bad_words:
-        pattern = re.compile(r'\b' + re.escape(word) + r'\b')
-        if pattern.search(message_text):
-            return True
-        
-        variations = [word + suffix for suffix in ['', 's', 'ing', 'ed', 'ly']]
-        for variation in variations:
-            pattern = re.compile(r'\b' + re.escape(variation) + r'\b')
-            if pattern.search(message_text):
-                return True
-    
+    try:
+        result = lm.instruct(
+            model="general",
+            instruction_text="Определить, содержит ли текст мат",
+            request_text=message.text.lower(),
+            max_tokens=1500,
+            temperature=0.6)
+
+        if result:
+            for alternative in result:
+                if alternative['score'] > 0.5:  
+                    return True
+    except YaGPTException as e:
+        print(f"Language Model Error: {e}")
+
     return False
 
 
