@@ -24,30 +24,31 @@ def create_tables():
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS stats
-        (chat_id TEXT, user_id TEXT, username TEXT, messages INTEGER, PRIMARY KEY (chat_id, user_id))
+        (chat_id TEXT, user_id TEXT, messages INTEGER, PRIMARY KEY (chat_id, user_id))
     ''')
     conn.commit()
     conn.close()
 
 create_tables()
 
-def save_stats(chat_id, user_id, username, stats):
+def save_stats(chat_id, user_id, stats):
     conn = sqlite3.connect('stats.db')
     cursor = conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO stats VALUES (?, ?, ?, ?)', (str(chat_id), str(user_id), username, stats['messages']))
+    cursor.execute('INSERT OR REPLACE INTO stats VALUES (?, ?, ?)', (str(chat_id), str(user_id), stats['messages']))
     conn.commit()
     conn.close()
 
 def load_stats(chat_id, user_id):
     conn = sqlite3.connect('stats.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT username, messages FROM stats WHERE chat_id=? AND user_id=?', (str(chat_id), str(user_id)))
+    cursor.execute('SELECT messages FROM stats WHERE chat_id=? AND user_id=?', (str(chat_id), str(user_id)))
     result = cursor.fetchone()
     conn.close()
     if result:
-        return {'username': result[0], 'messages': result[1]}
+        return {'messages': result[0]}
     else:
-        return {'username': None, 'messages': 0}
+        return {'messages': 0}
+
 
 
 @bot.message_handler(commands=['poll'])
@@ -90,7 +91,7 @@ def kick_user(message):
                 bot.send_message(chat_id, f"Пользователь {message.reply_to_message.from_user.username} был кикнут.")
                 bot.delete_message(chat_id, message.id)
         else:
-            bot.send_message(chat_id, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите кикнуть.")
+            bot.send_message(message.chat.id, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите кикнуть.")
             bot.delete_message(message.chat.id, message.id)
     else:
         bot.send_message(chat_id, "Эту команду можно использовать только в группах.")
@@ -104,6 +105,8 @@ def mute_user(message):
             chat_id = message.chat.id
             user_id = message.reply_to_message.from_user.id
             sender_status = bot.get_chat_member(chat_id, message.from_user.id).status
+            name = message.reply_to_message.from_user.first_name
+            admin_name = f"{message.from_user.first_name} {message.from_user.last_name}" if message.from_user.last_name else message.from_user.first_name
             if sender_status not in ['administrator', 'creator']:
                 bot.send_message(chat_id, "Только администраторы и владельцы чата могут использовать эту команду за это вы получите мут в течение 20 минут.")
                 bot.restrict_chat_member(chat_id, message.from_user.id, until_date=time.time()+20*60)
@@ -131,7 +134,7 @@ def mute_user(message):
                     return
                 reason = ' '.join(args[1:])
                 bot.restrict_chat_member(chat_id, user_id, until_date=time.time()+muttime*60)
-                bot.send_message(chat_id, f"Пользователь {message.reply_to_message.from_user.username} замучен на {muttime} минут.\nПричина: {reason}", reply_to_message_id=message.reply_to_message.message_id)
+                bot.send_message(chat_id, f"Пользователь {message.reply_to_message.from_user.username} замучен на {muttime} минут.\n Администратор: {admin_name}\nПричина: {reason}", reply_to_message_id=message.reply_to_message.message_id)
                 bot.delete_message(chat_id, message.id)
         else:
             bot.send_message(message.chat.id, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите замутить.")
@@ -207,15 +210,9 @@ def check_message(message):
 def handle_message(message):
     chat_id = message.chat.id
     user_id = message.from_user.id
-    username = message.from_user.username
     user_stats = load_stats(chat_id, user_id)
     user_stats['messages'] += 1
-    save_stats(chat_id, user_id, username, user_stats)
-    if chat_id not in chat_history:
-        chat_history[chat_id] = {}
-    if user_id not in chat_history[chat_id]:
-        chat_history[chat_id][user_id] = {'messages': 0}
-    chat_history[chat_id][user_id]['messages'] += 1
+    save_stats(chat_id, user_id, user_stats)
     
     user_name = message.from_user.username
     message_text = message.text
