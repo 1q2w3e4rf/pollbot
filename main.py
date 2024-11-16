@@ -5,14 +5,13 @@ import time
 import json
 import sqlite3
 import os
+import re
 
 
 bot = telebot.TeleBot(TOKEN)
 last_poll_time = bot.last_poll_time = None
 chat_history = {}
 words = []
-
-
 
 with open('mat.txt', 'r') as f:
     words = f.read().splitlines()
@@ -25,30 +24,30 @@ def create_tables():
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS stats
-        (chat_id TEXT, user_id TEXT, messages INTEGER, PRIMARY KEY (chat_id, user_id))
+        (chat_id TEXT, user_id TEXT, username TEXT, messages INTEGER, PRIMARY KEY (chat_id, user_id))
     ''')
     conn.commit()
     conn.close()
 
 create_tables()
 
+def save_stats(chat_id, user_id, username, stats):
+    conn = sqlite3.connect('stats.db')
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO stats VALUES (?, ?, ?, ?)', (str(chat_id), str(user_id), username, stats['messages']))
+    conn.commit()
+    conn.close()
+
 def load_stats(chat_id, user_id):
     conn = sqlite3.connect('stats.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT messages FROM stats WHERE chat_id=? AND user_id=?', (str(chat_id), str(user_id)))
+    cursor.execute('SELECT username, messages FROM stats WHERE chat_id=? AND user_id=?', (str(chat_id), str(user_id)))
     result = cursor.fetchone()
     conn.close()
     if result:
-        return {'messages': result[0]}
+        return {'username': result[0], 'messages': result[1]}
     else:
-        return {'messages': 0}
-
-def save_stats(chat_id, user_id, stats):
-    conn = sqlite3.connect('stats.db')
-    cursor = conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO stats VALUES (?, ?, ?)', (str(chat_id), str(user_id), stats['messages']))
-    conn.commit()
-    conn.close()
+        return {'username': None, 'messages': 0}
 
 
 @bot.message_handler(commands=['poll'])
@@ -111,33 +110,35 @@ def mute_user(message):
                 bot.delete_message(chat_id, message.id)
                 return
             else:
-                muttime = 60
                 args = message.text.split()[1:]
-                if args:
-                    try:
-                        muttime = int(args[0])
-                    except ValueError:
-                        bot.send_message(chat_id, "Неправильный формат времени.")
-                        bot.delete_message(chat_id, message.id)
-                        return
-                    if muttime < 1:
-                        bot.send_message(chat_id, "Время должно быть положительным числом.")
-                        bot.delete_message(chat_id, message.id) 
-                        return
-                    if muttime > 1440:
-                        bot.send_message(chat_id, "Максимальное время - 1 день.")
-                        bot.delete_message(chat_id, message.id) 
-                        return
+                if len(args) < 2:
+                    bot.send_message(chat_id, "Неправильный формат команды. Используйте: /mute <время> <причина>")
+                    bot.delete_message(chat_id, message.id)
+                    return
+                try:
+                    muttime = int(args[0])
+                except ValueError:
+                    bot.send_message(chat_id, "Неправильный формат времени.")
+                    bot.delete_message(chat_id, message.id)
+                    return
+                if muttime < 1:
+                    bot.send_message(chat_id, "Время должно быть положительным числом.")
+                    bot.delete_message(chat_id, message.id)
+                    return
+                if muttime > 1440:
+                    bot.send_message(chat_id, "Максимальное время - 1 день.")
+                    bot.delete_message(chat_id, message.id)
+                    return
+                reason = ' '.join(args[1:])
                 bot.restrict_chat_member(chat_id, user_id, until_date=time.time()+muttime*60)
-                bot.send_message(chat_id, f"Пользователь {message.reply_to_message.from_user.username} замучен на {muttime} минут.")
+                bot.send_message(chat_id, f"Пользователь {message.reply_to_message.from_user.username} замучен на {muttime} минут.\nПричина: {reason}", reply_to_message_id=message.reply_to_message.message_id)
                 bot.delete_message(chat_id, message.id)
         else:
             bot.send_message(message.chat.id, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите замутить.")
-            bot.delete_message(message.chat.id, message.id) 
+            bot.delete_message(message.chat.id, message.id)
     else:
         bot.send_message(chat_id, "Эту команду можно использовать только в группах.")
         bot.delete_message(message.chat.id, message.id)
-
 
 @bot.message_handler(commands=['unmute'])
 def unmute_user(message):
@@ -147,18 +148,18 @@ def unmute_user(message):
             user_id = message.reply_to_message.from_user.id
             sender_status = bot.get_chat_member(chat_id, message.from_user.id).status
             if sender_status not in ['administrator', 'creator']:
-                bot.send_message(chat_id, "Только администраторы и владельцы чата могут использовать эту команду за это вы получите мут в течение 20 минут.")
+                bot.send_message(message.chat.id, "Только администраторы и владельцы чата могут использовать эту команду за это вы получите мут в течение 20 минут.")
                 bot.restrict_chat_member(chat_id, message.from_user.id, until_date=time.time()+20*60)
-                bot.delete_message(chat_id, message.id)
+                bot.delete_message(message.chat.id, message.id)
                 return
-            bot.restrict_chat_member(chat_id, user_id, can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True, can_add_web_page_previews=True)
-            bot.send_message(chat_id, f"Пользователь {message.reply_to_message.from_user.username} размучен.")
-            bot.delete_message(chat_id, message.id)
+            bot.restrict_chat_member(chat_id, user_id, can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True, can_add_web_page_previews=True, until_date=0)
+            bot.send_message(message.chat.id, f"Пользователь {message.reply_to_message.from_user.username} размучен.")
+            bot.delete_message(message.chat.id, message.id)
         else:
-            bot.send_message(chat_id, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите размутить.")
+            bot.send_message(message.chat.id, "Эта команда должна быть использована в ответ на сообщение пользователя, которого вы хотите размутить.")
             bot.delete_message(message.chat.id, message.id)
     else:
-        bot.send_message(chat_id, "Эту команду можно использовать только в группах.")
+        bot.send_message(message.chat.id, "Эту команду можно использовать только в группах.")
         bot.delete_message(message.chat.id, message.id)
 
 @bot.message_handler(commands=['stats'])
@@ -197,7 +198,7 @@ def check_message(message):
         if char.isalpha():
             message_text = message_text.replace(char, translit_dict.get(char, char))
     for word in words:
-        if message_text.startswith(word) or ' ' + word in message_text:
+        if re.search(r'\b' + re.escape(word) + r'\b', message_text):
             return True
     return False
 
@@ -206,9 +207,10 @@ def check_message(message):
 def handle_message(message):
     chat_id = message.chat.id
     user_id = message.from_user.id
+    username = message.from_user.username
     user_stats = load_stats(chat_id, user_id)
     user_stats['messages'] += 1
-    save_stats(chat_id, user_id, user_stats)
+    save_stats(chat_id, user_id, username, user_stats)
     if chat_id not in chat_history:
         chat_history[chat_id] = {}
     if user_id not in chat_history[chat_id]:
